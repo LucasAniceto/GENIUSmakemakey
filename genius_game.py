@@ -6,9 +6,12 @@ import math
 
 pygame.init()
 
-WINDOW_WIDTH = 600
-WINDOW_HEIGHT = 600
 FPS = 60
+
+# Configurar para tela cheia
+info = pygame.display.Info()
+WINDOW_WIDTH = info.current_w
+WINDOW_HEIGHT = info.current_h
 
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
@@ -22,23 +25,25 @@ DARK_BLUE = (50, 50, 150)
 DARK_YELLOW = (150, 150, 50)
 
 CIRCLE_CENTER = (WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2)
-CIRCLE_RADIUS = 200
-INNER_RADIUS = 50
+CIRCLE_RADIUS = min(WINDOW_WIDTH, WINDOW_HEIGHT) // 4  # Ajusta ao tamanho da tela
+INNER_RADIUS = CIRCLE_RADIUS // 6
 
 class GeniusGame:
     def __init__(self):
-        self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-        pygame.display.set_caption("GENIUS Memory Game")
+        self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.FULLSCREEN)
+        pygame.display.set_caption("JOGO DA MEMORIA GENIUS")
         self.clock = pygame.time.Clock()
         
         self.sequence = []
         self.player_sequence = []
         self.current_level = 1
-        self.game_state = "waiting"  # waiting, showing, input, game_over
+        self.game_state = "esperando"  # esperando, mostrando, entrada, completo, fim_jogo
         self.active_button = None
         self.button_flash_time = 0
         self.sequence_index = 0
         self.last_flash_time = 0
+        self.flash_duration = 500  # Duração consistente do flash em ms
+        self.completion_time = 0  # Tempo quando sequência foi completada
         
         self.sectors = {
             'red': {'start_angle': 0, 'end_angle': 90},
@@ -68,7 +73,7 @@ class GeniusGame:
         self.show_sequence()
         
     def show_sequence(self):
-        self.game_state = "showing"
+        self.game_state = "mostrando"
         self.sequence_index = 0
         self.active_button = None
         self.last_flash_time = pygame.time.get_ticks()
@@ -81,13 +86,13 @@ class GeniusGame:
                 if self.active_button is None:
                     self.active_button = self.sequence[self.sequence_index]
                     self.button_flash_time = current_time
-                elif current_time - self.button_flash_time > 600:
+                elif current_time - self.button_flash_time > self.flash_duration:
                     self.active_button = None
                     self.sequence_index += 1
                     self.last_flash_time = current_time
         else:
             if current_time - self.last_flash_time > 500:
-                self.game_state = "input"
+                self.game_state = "entrada"
                 self.player_sequence = []
                 
     def get_clicked_sector(self, pos):
@@ -108,7 +113,7 @@ class GeniusGame:
         return None
     
     def handle_keyboard_input(self, color):
-        if self.game_state != "input":
+        if self.game_state != "entrada":
             return
             
         self.player_sequence.append(color)
@@ -116,12 +121,10 @@ class GeniusGame:
         self.button_flash_time = pygame.time.get_ticks()
         
         if self.player_sequence[-1] != self.sequence[len(self.player_sequence) - 1]:
-            self.game_state = "game_over"
+            self.game_state = "fim_jogo"
         elif len(self.player_sequence) == len(self.sequence):
-            self.current_level += 1
-            self.generate_sequence()
-            pygame.time.wait(1000)
-            self.show_sequence()
+            self.game_state = "completo"
+            self.completion_time = pygame.time.get_ticks()
                 
     def draw_sector(self, sector_name, is_active):
         start_angle = math.radians(self.sectors[sector_name]['start_angle'])
@@ -155,32 +158,61 @@ class GeniusGame:
         
         for sector_name in self.sectors.keys():
             is_active = (self.active_button == sector_name and 
-                        current_time - self.button_flash_time < 500)
+                        current_time - self.button_flash_time < self.flash_duration)
             self.draw_sector(sector_name, is_active)
             
         pygame.draw.circle(self.screen, BLACK, CIRCLE_CENTER, INNER_RADIUS)
         pygame.draw.circle(self.screen, WHITE, CIRCLE_CENTER, INNER_RADIUS, 3)
         
-        if self.game_state == "input" and current_time - self.button_flash_time > 200:
+        if self.game_state == "entrada" and current_time - self.button_flash_time > self.flash_duration:
             self.active_button = None
             
-        level_text = self.font.render(f"Level: {self.current_level}", True, WHITE)
-        self.screen.blit(level_text, (WINDOW_WIDTH // 2 - level_text.get_width() // 2, 520))
+        if self.game_state != "esperando":
+            level_text = self.font.render(f"Nivel: {self.current_level}", True, WHITE)
+            self.screen.blit(level_text, (WINDOW_WIDTH // 2 - level_text.get_width() // 2, WINDOW_HEIGHT - 150))
         
-        if self.game_state == "waiting":
-            start_text = self.small_font.render("Press SPACE to start", True, WHITE)
-            self.screen.blit(start_text, (WINDOW_WIDTH // 2 - start_text.get_width() // 2, 560))
-        elif self.game_state == "showing":
-            watch_text = self.small_font.render("Watch the sequence...", True, WHITE)
-            self.screen.blit(watch_text, (WINDOW_WIDTH // 2 - watch_text.get_width() // 2, 560))
-        elif self.game_state == "input":
-            input_text = self.small_font.render("Use WASD keys to repeat sequence", True, WHITE)
-            self.screen.blit(input_text, (WINDOW_WIDTH // 2 - input_text.get_width() // 2, 560))
-        elif self.game_state == "game_over":
-            game_over_text = self.font.render("Game Over!", True, WHITE)
-            self.screen.blit(game_over_text, (WINDOW_WIDTH // 2 - game_over_text.get_width() // 2, 540))
-            restart_text = self.small_font.render("Press SPACE to restart", True, WHITE)
-            self.screen.blit(restart_text, (WINDOW_WIDTH // 2 - restart_text.get_width() // 2, 580))
+        if self.game_state == "esperando":
+            # Posicionar textos abaixo do círculo do Genius
+            text_start_y = CIRCLE_CENTER[1] + CIRCLE_RADIUS + 80
+            
+            start_text = self.font.render("Pressione ESPACO para iniciar", True, WHITE)
+            self.screen.blit(start_text, (WINDOW_WIDTH // 2 - start_text.get_width() // 2, text_start_y))
+            
+            controls_title = self.font.render("Controles:", True, WHITE)
+            self.screen.blit(controls_title, (WINDOW_WIDTH // 2 - controls_title.get_width() // 2, text_start_y + 80))
+            
+            # Organizar controles nas laterais da tela
+            left_margin = 50
+            right_margin = WINDOW_WIDTH - 250
+            
+            control_up = self.small_font.render("CIMA = Azul", True, BLUE)
+            self.screen.blit(control_up, (left_margin, text_start_y + 130))
+            
+            control_left = self.small_font.render("ESQUERDA = Verde", True, GREEN)
+            self.screen.blit(control_left, (left_margin, text_start_y + 170))
+            
+            control_down = self.small_font.render("BAIXO = Amarelo", True, YELLOW)
+            self.screen.blit(control_down, (right_margin, text_start_y + 130))
+            
+            control_right = self.small_font.render("DIREITA = Vermelho", True, RED)
+            self.screen.blit(control_right, (right_margin, text_start_y + 170))
+            
+            exit_text = self.small_font.render("Pressione ESC para sair", True, WHITE)
+            self.screen.blit(exit_text, (WINDOW_WIDTH // 2 - exit_text.get_width() // 2, text_start_y + 230))
+        elif self.game_state == "mostrando":
+            watch_text = self.font.render("Observe a sequencia...", True, WHITE)
+            self.screen.blit(watch_text, (WINDOW_WIDTH // 2 - watch_text.get_width() // 2, WINDOW_HEIGHT - 100))
+        elif self.game_state == "entrada":
+            input_text = self.font.render("Use as setas para repetir a sequencia", True, WHITE)
+            self.screen.blit(input_text, (WINDOW_WIDTH // 2 - input_text.get_width() // 2, WINDOW_HEIGHT - 100))
+        elif self.game_state == "completo":
+            success_text = self.font.render("Correto! Avancando para o proximo nivel...", True, WHITE)
+            self.screen.blit(success_text, (WINDOW_WIDTH // 2 - success_text.get_width() // 2, WINDOW_HEIGHT - 100))
+        elif self.game_state == "fim_jogo":
+            game_over_text = self.font.render("Fim de Jogo!", True, WHITE)
+            self.screen.blit(game_over_text, (WINDOW_WIDTH // 2 - game_over_text.get_width() // 2, WINDOW_HEIGHT - 150))
+            restart_text = self.font.render("Pressione ESPACO para reiniciar", True, WHITE)
+            self.screen.blit(restart_text, (WINDOW_WIDTH // 2 - restart_text.get_width() // 2, WINDOW_HEIGHT - 100))
             
         pygame.display.flip()
         
@@ -192,20 +224,28 @@ class GeniusGame:
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_SPACE:
-                        if self.game_state in ["waiting", "game_over"]:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
+                    elif event.key == pygame.K_SPACE:
+                        if self.game_state in ["esperando", "fim_jogo"]:
                             self.start_new_game()
-                    elif event.key == pygame.K_w:
-                        self.handle_keyboard_input('red')
-                    elif event.key == pygame.K_a:
-                        self.handle_keyboard_input('yellow')
-                    elif event.key == pygame.K_s:
-                        self.handle_keyboard_input('green')
-                    elif event.key == pygame.K_d:
+                    elif event.key == pygame.K_UP:
                         self.handle_keyboard_input('blue')
+                    elif event.key == pygame.K_LEFT:
+                        self.handle_keyboard_input('green')
+                    elif event.key == pygame.K_DOWN:
+                        self.handle_keyboard_input('yellow')
+                    elif event.key == pygame.K_RIGHT:
+                        self.handle_keyboard_input('red')
                         
-            if self.game_state == "showing":
+            if self.game_state == "mostrando":
                 self.update_sequence_display()
+            elif self.game_state == "completo":
+                current_time = pygame.time.get_ticks()
+                if current_time - self.completion_time > self.flash_duration + 500:
+                    self.current_level += 1
+                    self.generate_sequence()
+                    self.show_sequence()
                 
             self.draw()
             self.clock.tick(FPS)
